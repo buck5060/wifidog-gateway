@@ -122,6 +122,45 @@ iptables_do_command(const char *format, ...)
     return rc;
 }
 
+
+/** @internal 
+ * */
+static int
+iptables_do_remote_command(const char *format, ...)
+{
+    va_list vlist;
+    char *fmt_cmd;
+    char *cmd;
+    int rc;
+
+    va_start(vlist, format);
+    safe_vasprintf(&fmt_cmd, format, vlist);
+    va_end(vlist);
+
+    safe_asprintf(&cmd, "postwifidog %s", fmt_cmd);
+    free(fmt_cmd);
+
+    //iptables_insert_gateway_id(&cmd);
+    system(cmd);
+
+    debug(LOG_DEBUG, "Executing command: %s", cmd);
+
+    rc = execute(cmd, fw_quiet);
+
+    if (rc != 0) {
+        // If quiet, do not display the error
+        if (fw_quiet == 0)
+            debug(LOG_ERR, "postwifidog command failed(%d): %s", rc, cmd);
+        else if (fw_quiet == 1)
+            debug(LOG_DEBUG, "postwifidog command failed(%d): %s", rc, cmd);
+    }
+
+    free(cmd);
+
+    return rc;
+}
+
+
 /**
  * @internal
  * Compiles a struct definition of a firewall rule into a valid iptables
@@ -560,14 +599,15 @@ iptables_fw_access(fw_access_t type, const char *ip, const char *mac, int tag)
 
     switch (type) {
     case FW_ACCESS_ALLOW:
-        iptables_do_command("-t mangle -A " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,
-                            mac, tag);
+        iptables_do_command("-t mangle -A " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,mac, tag);
+        iptables_do_remote_command("0 %s %s", mac, ip);
         rc = iptables_do_command("-t mangle -A " CHAIN_INCOMING " -d %s -j ACCEPT", ip);
         break;
     case FW_ACCESS_DENY:
         /* XXX Add looping to really clear? */
         iptables_do_command("-t mangle -D " CHAIN_OUTGOING " -s %s -m mac --mac-source %s -j MARK --set-mark %d", ip,
                             mac, tag);
+        iptables_do_remote_command("1 %s %s", mac, ip);
         rc = iptables_do_command("-t mangle -D " CHAIN_INCOMING " -d %s -j ACCEPT", ip);
         break;
     default:
